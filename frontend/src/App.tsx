@@ -1,189 +1,178 @@
-// frontend/src/App.tsx
-import {useState} from 'react'
-
-// API Response Type
-interface LoginResponse {
-    success: boolean;
-    message: string;
-}
-
-// LoginForm Component
-interface LoginFormProps {
-    onLogin: (username: string, password: string) => void;
-    isLoading: boolean;
-    error: string | null;
-}
-
-const LoginForm = ({onLogin, isLoading, error}: LoginFormProps) => {
-    const [username, setUsername] = useState('')
-    const [password, setPassword] = useState('')
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault()
-        onLogin(username, password)
-    }
-
-    return (
-        <div style={{border: '1px solid #ccc', padding: '20px', marginTop: '20px', maxWidth: '300px'}}>
-            <h3>ログイン</h3>
-            {error && (
-                <div style={{
-                    backgroundColor: '#ffebee',
-                    color: '#c62828',
-                    padding: '10px',
-                    marginBottom: '10px',
-                    borderRadius: '4px'
-                }}>
-                    {error}
-                </div>
-            )}
-            <form onSubmit={handleSubmit}>
-                <div style={{marginBottom: '10px'}}>
-                    <label htmlFor="username" style={{display: 'block'}}>ユーザー名:</label>
-                    <input
-                        id="username"
-                        type="text"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        required
-                        disabled={isLoading}
-                        style={{width: '100%', padding: '8px', boxSizing: 'border-box'}}
-                    />
-                </div>
-                <div style={{marginBottom: '10px'}}>
-                    <label htmlFor="password" style={{display: 'block'}}>パスワード:</label>
-                    <input
-                        id="password"
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        required
-                        disabled={isLoading}
-                        style={{width: '100%', padding: '8px', boxSizing: 'border-box'}}
-                    />
-                </div>
-                <button
-                    type="submit"
-                    disabled={isLoading}
-                    style={{
-                        width: '100%',
-                        padding: '10px',
-                        cursor: isLoading ? 'not-allowed' : 'pointer',
-                        backgroundColor: isLoading ? '#ccc' : '#1976d2',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px'
-                    }}
-                >
-                    {isLoading ? 'ログイン中...' : 'ログイン'}
-                </button>
-            </form>
-        </div>
-    )
-}
-
-// Dashboard Component (ログイン成功画面)
-interface DashboardProps {
-    username: string;
-    onLogout: () => void;
-}
-
-const Dashboard = ({username, onLogout}: DashboardProps) => {
-    return (
-        <div style={{
-            padding: '20px',
-            maxWidth: '500px',
-            margin: '20px auto',
-            textAlign: 'center'
-        }}>
-            <div style={{
-                backgroundColor: '#e8f5e9',
-                padding: '30px',
-                borderRadius: '8px',
-                marginBottom: '20px'
-            }}>
-                <h2 style={{color: '#2e7d32', marginTop: 0}}>🎉 ログイン成功!</h2>
-                <p style={{fontSize: '18px', color: '#333'}}>
-                    ようこそ、<strong>{username}</strong> さん！
-                </p>
-            </div>
-            <div style={{
-                backgroundColor: '#f5f5f5',
-                padding: '20px',
-                borderRadius: '8px'
-            }}>
-                <h3>ダッシュボード</h3>
-                <p>ここにログイン後のコンテンツが表示されます。</p>
-            </div>
-            <button
-                onClick={onLogout}
-                style={{
-                    marginTop: '20px',
-                    padding: '10px 30px',
-                    backgroundColor: '#757575',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer'
-                }}
-            >
-                ログアウト
-            </button>
-        </div>
-    )
-}
+import { useState } from 'react'
+import './App.css'
 
 function App() {
-    const [isLoggedIn, setIsLoggedIn] = useState(false)
-    const [loggedInUser, setLoggedInUser] = useState('')
-    const [isLoading, setIsLoading] = useState(false)
-    const [error, setError] = useState<string | null>(null)
+  const [username, setUsername] = useState('') // email -> username
+  const [password, setPassword] = useState('')
+  const [name, setName] = useState('')
+  const [message, setMessage] = useState('')
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [token, setToken] = useState('') // トークン管理用
+  const [userRole, setUserRole] = useState('') // ロール管理用
+  const [mode, setMode] = useState<'login' | 'register'>('login')
 
-    const handleLogin = async (username: string, password: string) => {
-        setIsLoading(true)
-        setError(null)
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setMessage('')
 
-        try {
-            const response = await fetch('/api/login', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({username, password}),
-            })
+    try {
+      // バックエンドのポートに合わせてURLを指定（環境変数がなければ3000と仮定）
+      const response = await fetch('http://localhost:3000/api/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, password }), // email -> username
+      })
 
-            const data: LoginResponse = await response.json()
+      const data = await response.json()
 
-            if (data.success) {
-                setIsLoggedIn(true)
-                setLoggedInUser(username)
-            } else {
-                setError(data.message)
-            }
-        } catch (err) {
-            console.error('Login error:', err)
-            setError('サーバーに接続できませんでした。')
-        } finally {
-            setIsLoading(false)
+      if (response.ok && data.success) {
+        setIsLoggedIn(true)
+        setMessage(data.message)
+        setToken(data.token) // トークンを保存
+        
+        // トークンからロールを取得（簡易的なデコード）
+        if (data.token) {
+           try {
+             const payload = JSON.parse(atob(data.token.split('.')[1]))
+             setUserRole(payload.role)
+           } catch (e) {
+             console.error('Token decode error', e)
+           }
         }
+      } else {
+        setMessage(data.message || 'ログインに失敗しました')
+      }
+    } catch (error) {
+      console.error(error)
+      setMessage('サーバーとの通信エラーが発生しました')
     }
+  }
 
-    const handleLogout = () => {
-        setIsLoggedIn(false)
-        setLoggedInUser('')
-        setError(null)
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setMessage('')
+
+    try {
+      const response = await fetch('http://localhost:3000/api/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ username, password, name }), // email -> username
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.success) {
+        setMessage(data.message)
+        // 管理者が登録を行うため、ログイン画面には遷移させない
+        setName('')
+        setUsername('') // email -> username
+        setPassword('')
+      } else {
+        setMessage(data.message || '登録に失敗しました')
+      }
+    } catch (error) {
+      console.error(error)
+      setMessage('サーバーとの通信エラーが発生しました')
     }
+  }
 
-    return (
-        <div>
-            {isLoggedIn ? (
-                <Dashboard username={loggedInUser} onLogout={handleLogout}/>
-            ) : (
-                <LoginForm onLogin={handleLogin} isLoading={isLoading} error={error}/>
-            )}
+  const handleLogout = () => {
+    setIsLoggedIn(false)
+    setUsername('') // email -> username
+    setPassword('')
+    setToken('')
+    setUserRole('')
+    setMessage('ログアウトしました')
+    setMode('login')
+  }
+
+  return (
+    <div className="app-container">
+      <h1>成績管理システム</h1>
+      
+      {isLoggedIn ? (
+        <div className="dashboard">
+          <h2>ようこそ、{username} さん ({userRole === 'admin' ? '管理者' : '一般ユーザー'})</h2>
+          <p>{message}</p>
+          
+          {/* 管理者のみ新規登録フォームを表示 */}
+          {userRole === 'admin' && (
+            <div className="admin-section" style={{border: '1px solid #ccc', padding: '1rem', marginTop: '1rem'}}>
+              <h3>新規ユーザー登録 (管理者用)</h3>
+              <form onSubmit={handleRegister}>
+                <div className="form-group">
+                  <label>ユーザーID (ログイン用):</label>
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>表示名 (氏名):</label>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>パスワード:</label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <button type="submit">ユーザー登録</button>
+              </form>
+            </div>
+          )}
+
+          <div style={{marginTop: '1rem'}}>
+            <button onClick={handleLogout}>ログアウト</button>
+          </div>
         </div>
-    )
+      ) : (
+        <div className="auth-form">
+          <h2>ログイン</h2>
+          {message && <p className="message">{message}</p>}
+
+          <form onSubmit={handleLogin}>
+            <div className="form-group">
+              <label>ユーザーID:</label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+              />
+            </div>
+            
+            <div className="form-group">
+              <label>パスワード:</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+
+            <button type="submit">ログイン</button>
+          </form>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default App
-
