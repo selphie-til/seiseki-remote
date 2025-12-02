@@ -1,10 +1,9 @@
-// backend/src/index.ts
 import 'dotenv/config'
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { sign, verify } from 'hono/jwt' // JWT用の関数をインポート
-import { registerUser, authenticateUser } from './auth.js'
+import { registerUser, authenticateUser, registerUsersBulk } from './auth.js' // registerUsersBulkをインポートしているか確認
 
 const app = new Hono()
 const JWT_SECRET = process.env.JWT_SECRET || 'secret-key' // 本番環境では必ず環境変数を使用してください
@@ -71,7 +70,50 @@ app.post('/api/login', async (c) => {
     return c.json(result, 401)
 })
 
-const PORT = Number(process.env.PORT) || 3000
+    // ユーザー一括登録API (管理者のみ実行可能)
+    app.post('/api/register/bulk', async (c) => {
+        // 1. トークンの検証
+        const authHeader = c.req.header('Authorization')
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return c.json({ success: false, message: '認証が必要です' }, 401)
+        }
+    
+        const token = authHeader.split(' ')[1]
+    
+        try {
+            const payload = await verify(token, JWT_SECRET)
+            // 2. 管理者権限のチェック
+            if (payload.role !== 'admin') {
+                return c.json({ success: false, message: '管理者権限が必要です' }, 403)
+            }
+        } catch (e) {
+            return c.json({ success: false, message: '無効なトークンです' }, 401)
+        }
+
+        try {
+            const body = await c.req.json()
+            const { users } = body
+
+            if (!users || !Array.isArray(users) || users.length === 0) {
+                return c.json({ success: false, message: 'ユーザーデータが不正です' }, 400)
+            }
+
+            // 各ユーザーのバリデーション
+            for (const user of users) {
+                if (!user.username || !user.password || !user.name) {
+                    return c.json({ success: false, message: 'ユーザー名、パスワード、名前は必須です' }, 400)
+                }
+            }
+
+            const result = await registerUsersBulk(users)
+            return c.json(result, result.success ? 201 : 400)
+        } catch (error) {
+             console.error('Bulk API error:', error)
+             return c.json({ success: false, message: 'リクエストの処理中にエラーが発生しました' }, 400)
+        }
+    })
+
+    const PORT = Number(process.env.PORT) || 3000
 
 console.log(`Server is running on port ${PORT}`)
 
