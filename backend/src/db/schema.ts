@@ -74,9 +74,9 @@ export const subjects = pgTable('subjects', {
 
     // データ登録担当の教員（teachersテーブルを参照）
     // この教員に紐付くuserが成績入力可能
+    // 教員が登録されていない場合はnullを許可
     registrarId: integer('registrar_id')
-        .references(() => teachers.id, { onDelete: 'restrict' })
-        .notNull(),
+        .references(() => teachers.id, { onDelete: 'restrict' }),
 
     accessPin: text('access_pin').notNull(), // 4桁暗証番号
 }, (t) => ({
