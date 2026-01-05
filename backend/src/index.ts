@@ -3,12 +3,13 @@ import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { sign, verify } from 'hono/jwt'
+import { eq } from 'drizzle-orm'
 import { registerUser, authenticateUser, registerUsersBulk } from './auth.js'
 import { registerTeachersBulk } from './db/teachers.js'
 import { registerStudentsBulk } from './db/students.js'
 import { registerSubjectsBulk } from './db/subjects.js'
 import { db } from './db/index.js'
-import { groups } from './db/schema.js'
+import { groups, subjects, enrollments, students } from './db/schema.js'
 import * as XLSX from 'xlsx'
 
 const app = new Hono()
@@ -68,6 +69,110 @@ app.post('/api/login', async (c) => {
     }
 
     return c.json(result, 401)
+})
+
+// 暗証番号で科目と履修学生を検索するAPI
+app.get('/api/subject/search/:accessPin', async (c) => {
+    const authHeader = c.req.header('Authorization')
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return c.json({ success: false, message: '認証が必要です' }, 401)
+    }
+
+    const token = authHeader.split(' ')[1]
+
+    try {
+        const payload = await verify(token, JWT_SECRET)
+        if (payload.role !== 'general') {
+            return c.json({ success: false, message: '一般教員権限が必要です' }, 403)
+        }
+    } catch (e) {
+        return c.json({ success: false, message: '無効なトークンです' }, 401)
+    }
+
+    const accessPin = c.req.param('accessPin')
+
+    try {
+        // 1. 科目情報を取得
+        const subjectResult = await db
+            .select({
+                subjectId: subjects.id,
+                subjectName: subjects.name,
+                year: subjects.year,
+                category: subjects.category,
+                classType: subjects.classType,
+                credits: subjects.credits,
+                groupId: subjects.groupId,
+                groupYear: groups.year,
+                groupName: groups.name,
+            })
+            .from(subjects)
+            .leftJoin(groups, eq(subjects.groupId, groups.id))
+            .where(eq(subjects.accessPin, accessPin))
+            .limit(1)
+
+        if (subjectResult.length === 0) {
+            return c.json({ success: false, message: '暗証番号に対応する科目が見つかりません' }, 404)
+        }
+
+        const subjectData = subjectResult[0]
+
+        // 2. その科目の対象組に属する全学生を取得（enrollmentsレコードがなくても含める）
+        const allStudentsInGroup = await db
+            .select({
+                studentId: students.id,
+                studentCode: students.studentCode,
+                studentName: students.name,
+                enrollmentId: enrollments.id,
+                scoreFirstSemester: enrollments.scoreFirstSemester,
+                scoreSecondSemester: enrollments.scoreSecondSemester,
+                absenceCount: enrollments.absenceCount,
+            })
+            .from(students)
+            .leftJoin(
+                enrollments,
+                (on) => eq(students.id, enrollments.studentId) && eq(enrollments.subjectId, subjectData.subjectId)
+            )
+            .where(eq(students.groupId, subjectData.groupId))
+            .orderBy(students.studentCode)
+
+        if (allStudentsInGroup.length === 0) {
+            return c.json({ success: false, message: 'この組に属する学生が見つかりません' }, 404)
+        }
+
+        // データを整形
+        const subject = {
+            id: subjectData.subjectId,
+            name: subjectData.subjectName,
+            year: subjectData.year,
+            category: subjectData.category,
+            classType: subjectData.classType,
+            credits: subjectData.credits,
+            group: {
+                id: subjectData.groupId,
+                year: subjectData.groupYear,
+                name: subjectData.groupName,
+            }
+        }
+
+        const enrollmentList = allStudentsInGroup.map(r => ({
+            enrollmentId: r.enrollmentId || null,
+            studentId: r.studentId,
+            studentCode: r.studentCode,
+            studentName: r.studentName,
+            scoreFirstSemester: r.scoreFirstSemester || null,
+            scoreSecondSemester: r.scoreSecondSemester || null,
+            absenceCount: r.absenceCount || 0,
+        }))
+
+        return c.json({
+            success: true,
+            subject,
+            enrollments: enrollmentList,
+        }, 200)
+    } catch (error) {
+        console.error('Subject search error:', error)
+        return c.json({ success: false, message: 'データベースエラーが発生しました' }, 500)
+    }
 })
 
 // 統合一括登録API (Excel)

@@ -17,6 +17,37 @@ interface BulkImportResponse {
   };
 }
 
+interface Enrollment {
+  enrollmentId: number;
+  studentId: number;
+  studentCode: string;
+  studentName: string;
+  scoreFirstSemester: number | null;
+  scoreSecondSemester: number | null;
+  absenceCount: number;
+}
+
+interface Subject {
+  id: number;
+  name: string;
+  year: number;
+  category: string;
+  classType: string;
+  credits: number;
+  group: {
+    id: number;
+    year: number;
+    name: string;
+  };
+}
+
+interface SearchResult {
+  success: boolean;
+  subject?: Subject;
+  enrollments?: Enrollment[];
+  message?: string;
+}
+
 // 統合一括登録コンポーネント
 const BulkImportRegister = ({ token, onSuccess, onError }: BulkRegisterProps) => {
   const [file, setFile] = useState<File | null>(null)
@@ -208,7 +239,11 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [token, setToken] = useState('')
   const [userRole, setUserRole] = useState('')
-  const [activeTab, setActiveTab] = useState<'grades' | 'bulkImport'>('grades')
+  const [activeTab, setActiveTab] = useState<'grades' | 'register' | 'bulkImport'>('grades')
+  const [accessPin, setAccessPin] = useState('')
+  const [searchResult, setSearchResult] = useState<SearchResult | null>(null)
+  const [isSearching, setIsSearching] = useState(false)
+  const [enrollmentScores, setEnrollmentScores] = useState<Record<number, { first: string; second: string; absence: string }>>({})
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -258,6 +293,57 @@ function App() {
     setUserRole('')
     setMessage('ログアウトしました')
     setActiveTab('grades')
+  }
+
+  const handleSearchSubject = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setMessage('')
+    setIsSearching(true)
+
+    try {
+      const response = await fetch(`http://localhost:3000/api/subject/search/${accessPin}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
+      const data: SearchResult = await response.json()
+
+      if (response.ok && data.success) {
+        setSearchResult(data)
+        // 初期化
+        const initialScores: Record<number, { first: string; second: string; absence: string }> = {}
+        if (data.enrollments) {
+          data.enrollments.forEach(enrollment => {
+            initialScores[enrollment.enrollmentId] = {
+              first: enrollment.scoreFirstSemester?.toString() || '',
+              second: enrollment.scoreSecondSemester?.toString() || '',
+              absence: enrollment.absenceCount?.toString() || '0'
+            }
+          })
+        }
+        setEnrollmentScores(initialScores)
+      } else {
+        setMessage(data.message || '科目が見つかりません')
+        setSearchResult(null)
+      }
+    } catch (error) {
+      setMessage(`検索中にエラーが発生しました: ${error instanceof Error ? error.message : String(error)}`)
+      setSearchResult(null)
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
+  const handleScoreChange = (enrollmentId: number, field: 'first' | 'second' | 'absence', value: string) => {
+    setEnrollmentScores(prev => ({
+      ...prev,
+      [enrollmentId]: {
+        ...prev[enrollmentId],
+        [field === 'first' ? 'first' : field === 'second' ? 'second' : 'absence']: value
+      }
+    }))
   }
 
   return (
@@ -319,6 +405,26 @@ function App() {
                 データ一括登録
               </button>
             )}
+
+            {userRole === 'general' && (
+              <button
+                onClick={() => { setActiveTab('register'); setMessage('') }}
+                style={{
+                  padding: '0.75rem 1.5rem',
+                  cursor: 'pointer',
+                  backgroundColor: activeTab === 'register' ? '#fff' : '#f0f0f0',
+                  border: '1px solid #ccc',
+                  borderBottom: activeTab === 'register' ? 'none' : '1px solid #ccc',
+                  marginBottom: '-1px',
+                  marginLeft: '0.5rem',
+                  fontWeight: activeTab === 'register' ? 'bold' : 'normal',
+                  borderTopLeftRadius: '4px',
+                  borderTopRightRadius: '4px'
+                }}
+              >
+                成績登録
+              </button>
+            )}
           </div>
 
           <div className="tab-content" style={{ padding: '1rem', border: '1px solid #ccc', borderTop: 'none' }}>
@@ -342,6 +448,211 @@ function App() {
               <div>
                 <h3>成績一覧</h3>
                 <p style={{ color: '#666' }}>現在、登録されている成績データはありません。</p>
+              </div>
+            )}
+
+            {activeTab === 'register' && userRole === 'general' && (
+              <div>
+                <h3>成績登録</h3>
+                <div style={{ backgroundColor: '#f9f9f9', padding: '1rem', borderRadius: '4px', marginBottom: '1.5rem' }}>
+                  <p style={{ margin: '0 0 1rem 0', color: '#333', fontWeight: '500' }}>
+                    科目の暗唱番号を入力して、成績登録データを検索してください
+                  </p>
+                  <form onSubmit={handleSearchSubject} style={{ display: 'flex', gap: '0.5rem' }}>
+                    <div style={{ flex: 1 }}>
+                      <input
+                        type="text"
+                        placeholder="4桁の暗唱番号を入力"
+                        value={accessPin}
+                        onChange={(e) => setAccessPin(e.target.value)}
+                        maxLength={4}
+                        disabled={isSearching}
+                        style={{
+                          padding: '0.75rem',
+                          fontSize: '1rem',
+                          border: '1px solid #ddd',
+                          borderRadius: '4px',
+                          width: '100%',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+                    <button 
+                      type="submit"
+                      disabled={isSearching || !accessPin}
+                      style={{
+                        padding: '0.75rem 1.5rem',
+                        backgroundColor: '#1976d2',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: isSearching || !accessPin ? 'not-allowed' : 'pointer',
+                        fontSize: '1rem',
+                        opacity: isSearching || !accessPin ? 0.6 : 1
+                      }}
+                    >
+                      {isSearching ? '検索中...' : '検索'}
+                    </button>
+                  </form>
+                </div>
+
+                {searchResult && searchResult.success && searchResult.subject && searchResult.enrollments && (
+                  <div style={{ marginTop: '2rem' }}>
+                    <div style={{ backgroundColor: '#e3f2fd', padding: '1rem', borderRadius: '4px', marginBottom: '1.5rem' }}>
+                      <h4 style={{ margin: '0 0 0.5rem 0' }}>科目情報</h4>
+                      <table style={{ width: '100%', fontSize: '0.9rem' }}>
+                        <tbody>
+                          <tr>
+                            <td style={{ fontWeight: 'bold', paddingRight: '1rem' }}>科目名:</td>
+                            <td>{searchResult.subject.name}</td>
+                          </tr>
+                          <tr>
+                            <td style={{ fontWeight: 'bold', paddingRight: '1rem' }}>対象学年:</td>
+                            <td>{searchResult.subject.group.year}年 {searchResult.subject.group.name}組</td>
+                          </tr>
+                          <tr>
+                            <td style={{ fontWeight: 'bold', paddingRight: '1rem' }}>分野:</td>
+                            <td>{searchResult.subject.category === 'S' ? '専攻' : 'その他'}</td>
+                          </tr>
+                          <tr>
+                            <td style={{ fontWeight: 'bold', paddingRight: '1rem' }}>形式:</td>
+                            <td>{searchResult.subject.classType === 'Lecture' ? '講義' : '演習'}</td>
+                          </tr>
+                          <tr>
+                            <td style={{ fontWeight: 'bold', paddingRight: '1rem' }}>単位:</td>
+                            <td>{searchResult.subject.credits}単位</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <h4 style={{ marginBottom: '1rem' }}>成績入力 ({searchResult.enrollments.length}名)</h4>
+                    <div style={{ overflowX: 'auto', marginBottom: '1.5rem' }}>
+                      <table style={{
+                        width: '100%',
+                        borderCollapse: 'collapse',
+                        border: '1px solid #ddd',
+                        fontSize: '0.9rem',
+                        backgroundColor: '#fff'
+                      }}>
+                        <thead>
+                          <tr style={{ backgroundColor: '#f5f5f5', borderBottom: '2px solid #ddd' }}>
+                            <th style={{ border: '1px solid #ddd', padding: '0.75rem', textAlign: 'left', minWidth: '100px' }}>学籍番号</th>
+                            <th style={{ border: '1px solid #ddd', padding: '0.75rem', textAlign: 'left', minWidth: '150px' }}>氏名</th>
+                            <th style={{ border: '1px solid #ddd', padding: '0.75rem', textAlign: 'center', minWidth: '80px' }}>1学期</th>
+                            <th style={{ border: '1px solid #ddd', padding: '0.75rem', textAlign: 'center', minWidth: '80px' }}>2学期</th>
+                            <th style={{ border: '1px solid #ddd', padding: '0.75rem', textAlign: 'center', minWidth: '80px' }}>欠課数</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {searchResult.enrollments.map((enrollment, idx) => (
+                            <tr key={enrollment.enrollmentId} style={{ backgroundColor: idx % 2 === 0 ? '#fff' : '#f9f9f9', borderBottom: '1px solid #ddd' }}>
+                              <td style={{ border: '1px solid #ddd', padding: '0.75rem', fontWeight: '500' }}>
+                                {enrollment.studentCode}
+                              </td>
+                              <td style={{ border: '1px solid #ddd', padding: '0.75rem' }}>
+                                {enrollment.studentName}
+                              </td>
+                              <td style={{ border: '1px solid #ddd', padding: '0.5rem', textAlign: 'center' }}>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  value={enrollmentScores[enrollment.enrollmentId]?.first || ''}
+                                  onChange={(e) => handleScoreChange(enrollment.enrollmentId, 'first', e.target.value)}
+                                  placeholder="-"
+                                  style={{
+                                    width: '100%',
+                                    padding: '0.5rem',
+                                    textAlign: 'center',
+                                    border: '1px solid #ddd',
+                                    borderRadius: '3px',
+                                    boxSizing: 'border-box',
+                                    fontSize: '0.9rem'
+                                  }}
+                                />
+                              </td>
+                              <td style={{ border: '1px solid #ddd', padding: '0.5rem', textAlign: 'center' }}>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  value={enrollmentScores[enrollment.enrollmentId]?.second || ''}
+                                  onChange={(e) => handleScoreChange(enrollment.enrollmentId, 'second', e.target.value)}
+                                  placeholder="-"
+                                  style={{
+                                    width: '100%',
+                                    padding: '0.5rem',
+                                    textAlign: 'center',
+                                    border: '1px solid #ddd',
+                                    borderRadius: '3px',
+                                    boxSizing: 'border-box',
+                                    fontSize: '0.9rem'
+                                  }}
+                                />
+                              </td>
+                              <td style={{ border: '1px solid #ddd', padding: '0.5rem', textAlign: 'center' }}>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={enrollmentScores[enrollment.enrollmentId]?.absence || '0'}
+                                  onChange={(e) => handleScoreChange(enrollment.enrollmentId, 'absence', e.target.value)}
+                                  placeholder="0"
+                                  style={{
+                                    width: '100%',
+                                    padding: '0.5rem',
+                                    textAlign: 'center',
+                                    border: '1px solid #ddd',
+                                    borderRadius: '3px',
+                                    boxSizing: 'border-box',
+                                    fontSize: '0.9rem'
+                                  }}
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                      <button
+                        onClick={() => {
+                          setAccessPin('')
+                          setSearchResult(null)
+                          setEnrollmentScores({})
+                        }}
+                        style={{
+                          padding: '0.75rem 1.5rem',
+                          backgroundColor: '#757575',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontSize: '0.9rem'
+                        }}
+                      >
+                        クリア
+                      </button>
+                      <button
+                        onClick={() => {
+                          setMessage('成績を保存する機能はまだ実装されていません')
+                        }}
+                        style={{
+                          padding: '0.75rem 1.5rem',
+                          backgroundColor: '#4caf50',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontSize: '0.9rem'
+                        }}
+                      >
+                        成績を保存
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
