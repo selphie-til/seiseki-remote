@@ -3,15 +3,18 @@ import { subjects, groups, teachers } from './schema.js';
 import { eq, and } from 'drizzle-orm';
 
 interface SubjectData {
-    year: number;
-    name: string;
-    category: 'S' | 'O';
-    classType: 'Lecture' | 'Exercise';
-    credits: number;
-    groupYear: number;
-    groupName: string;
-    registrarName: string;
-    accessPin: string;
+    serialNumber?: number;        // 通し番号
+    groupName: string;            // 組 (e.g., "25K")
+    studentCount?: number;        // 人数
+    examType?: string;            // 試験 (e.g., "定期")
+    name: string;                 // 科目名
+    category: 'S' | 'O';          // 分野 (専/他)
+    classType: 'Lecture' | 'Exercise'; // 形式 (講/演)
+    credits: number;              // 単位数
+    registrarName: string;        // 担当
+    instructorNames?: string[];   // 担当合員
+    accessPin: string;            // 暗証番号
+    year?: number;                // 学年（指定されない場合は2025から抽出）
 }
 
 export async function registerSubjectsBulk(subjectList: SubjectData[]) {
@@ -33,12 +36,15 @@ export async function registerSubjectsBulk(subjectList: SubjectData[]) {
         console.log(`\n📚 Processing subject: ${subjectData.name}`)
         
         try {
+            // 学年を決定（指定されない場合は2025）
+            const year = subjectData.year || 2025
+
             // グループIDを取得
-            console.log(`   Looking for group: year=${subjectData.groupYear}, name=${subjectData.groupName}`)
+            console.log(`   Looking for group: year=${year}, name=${subjectData.groupName}`)
             const [group] = await db.select()
                 .from(groups)
                 .where(and(
-                    eq(groups.year, subjectData.groupYear),
+                    eq(groups.year, year),
                     eq(groups.name, subjectData.groupName)
                 ));
 
@@ -47,14 +53,14 @@ export async function registerSubjectsBulk(subjectList: SubjectData[]) {
                 results.push({ 
                     name: subjectData.name, 
                     success: false, 
-                    message: `クラス ${subjectData.groupYear}-${subjectData.groupName} が見つかりません` 
+                    message: `クラス ${year}-${subjectData.groupName} が見つかりません` 
                 });
                 continue;
             }
             console.log(`   ✅ Group found: id=${group.id}`)
 
             // 重複チェック
-            const subjectKey = `${subjectData.year}-${subjectData.name}-${group.id}`;
+            const subjectKey = `${year}-${subjectData.name}-${group.id}`;
             if (existingKeys.has(subjectKey)) {
                 console.log(`   ⚠️  Subject already exists`)
                 results.push({ 
@@ -83,13 +89,13 @@ export async function registerSubjectsBulk(subjectList: SubjectData[]) {
             // 科目を登録
             console.log(`   Inserting subject...`)
             await db.insert(subjects).values({
-                year: subjectData.year,
+                year: year,
                 name: subjectData.name,
                 category: subjectData.category,
                 classType: subjectData.classType,
                 credits: subjectData.credits,
                 groupId: group.id,
-                registrarId: registrarId, // nullの場合もある
+                registrarId: registrarId,
                 accessPin: subjectData.accessPin,
             });
 
